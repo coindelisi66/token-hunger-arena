@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Token Hunger Arena — LEVEL 2 (Base Sepolia)</title>
+  <meta property="og:title" content="Token Hunger Arena — Level 2" />
+  <meta property="og:description" content="10+ memetoken arena: %1 fee, 30sn burn, final 2 kazanır. Simülasyon + isteğe bağlı on-chain." />
+  <meta name="twitter:card" content="summary_large_image" />
+  <style>
+    :root{color-scheme:dark}
+    body{background:#0b0b0b;color:#e6eef8;font-family:Inter,Segoe UI,Roboto,Arial;margin:0}
+    .wrap{max-width:1100px;margin:20px auto;padding:0 16px}
+    header h1{margin:0;font-size:22px}
+    .muted{color:#9aa0aa}
+    .card{background:#070707;border:1px solid #1f1f1f;padding:16px;border-radius:12px;margin:14px 0}
+    .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+    .btn{background:#111;border:1px solid #2b2b2b;color:#e6eef8;padding:8px 12px;border-radius:10px;cursor:pointer}
+    .btn.primary{background:linear-gradient(90deg,#11b981,#06b6d4);color:#021214}
+    input.btn,select.btn{background:#0d0d0d;border:1px solid #222;color:#e6eef8}
+    .foot{opacity:.6;text-align:center;padding:12px 0;font-size:13px}
+    .grid{display:grid;gap:12px}
+    .two{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+    .three{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+    .field{display:flex;flex-direction:column;gap:6px}
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .token-card{display:flex;gap:12px;align-items:center}
+    .token-card img{width:54px;height:54px;border-radius:12px;border:1px solid #333;background:#111}
+    .muted-sm{color:#9aa0aa;font-size:12px}
+    .hr{border:0;border-top:1px solid #222;margin:14px 0}
+    table{width:100%;border-collapse:collapse} th,td{padding:8px;border-bottom:1px solid #222;text-align:left}
+    code.inline{background:#111;border:1px solid #222;padding:2px 6px;border-radius:6px}
+    .arena{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+    .tile{background:#0c0c0c;border:1px solid #1f1f1f;border-radius:12px;padding:12px;position:relative;overflow:hidden}
+    .tile.dead{opacity:.35;filter:grayscale(0.8)}
+    .tile .name{font-weight:700}
+    .tile .bal{font-size:12px;color:#9aa0aa}
+    .tile .vol{font-size:12px;color:#aab2bd}
+    .tile .act{margin-top:8px}
+    .tag{font-size:11px;border:1px solid #2b2b2b;border-radius:999px;padding:2px 6px}
+    .timerBox{display:flex;gap:14px;flex-wrap:wrap}
+    .timer{min-width:220px}
+    .burnFlash{animation:burn .7s ease}
+    @keyframes burn{0%{box-shadow:0 0 0px #000} 50%{box-shadow:0 0 28px #ff3b3b33} 100%{box-shadow:0 0 0px #000}}
+    .modal{position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center;z-index:999}
+    .modal .box{background:#0b0b0b;border:1px solid #2a2a2a;border-radius:12px;max-width:420px;width:92%;padding:16px}
+  </style>
+  <!-- ethers v5 CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.min.js"></script>
+</head>
+<body>
+  <header class="wrap">
+    <h1>🔥 Token Hunger Arena — <small style="font-weight:400">LEVEL 2</small></h1>
+    <p class="muted">Ağ: <b>Base Sepolia</b> • Mod: <b>Simülasyon + On-Chain (opsiyonel)</b> • Fee: <b>%1</b> • Burn: <b>30sn</b> • Final: <b>2 token</b></p>
+  </header>
+
+  <main class="wrap" id="app">
+
+    <!-- >>> MULTI-PROVIDER DETECTION (MetaMask öncelikli) >>> -->
+    <script>
+    (function(){
+      const CHAIN_ID_HEX = '0x14A34'; // 84532
+      const CHAIN_PARAMS = {
+        chainId: CHAIN_ID_HEX,
+        chainName: 'Base Sepolia',
+        nativeCurrency: { name: 'Sepolia ETH', symbol: 'ETH', decimals: 18 },
+        rpcUrls: ['https://sepolia.base.org'],
+        blockExplorerUrls: ['https://sepolia.basescan.org']
+      };
+      const $ = (s)=>document.querySelector(s);
+
+      // Aktif provider
+      window.__THA_provider = null;
+
+      function pickFromArray(arr){
+        // MetaMask > Rabby > Coinbase > diğer
+        const pri = p=> (p && (p.isMetaMask || p.isRabby || p.isCoinbaseWallet)) ? 0 : 1;
+        return arr.slice().sort((a,b)=>pri(a)-pri(b))[0];
+      }
+      function detect(){
+        try{
+          if (window.ethereum && Array.isArray(window.ethereum.providers)){
+            window.__THA_provider = pickFromArray(window.ethereum.providers);
+            console.log('THA provider: multi ->', window.__THA_provider?.isMetaMask?'MetaMask': (window.__THA_provider?.isRabby?'Rabby':'Other'));
+            return;
+          }
+          if (window.ethereum){
+            window.__THA_provider = window.ethereum;
+            console.log('THA provider: single');
+            return;
+          }
+          window.__THA_provider = null;
+          console.log('THA provider: none');
+        }catch(e){ console.warn('detect error', e); window.__THA_provider=null; }
+      }
+      detect();
+
+      window.getSafeEthersProvider = function(){
+        const prov = window.__THA_provider || window.ethereum;
+        if(!prov) return null;
+        try{ return new ethers.providers.Web3Provider(prov); }catch(e){ console.warn('Web3Provider fail', e); return null; }
+      };
+
+      window.connectSafe = async function(){
+        try{
+          if(!window.__THA_provider) detect();
+          const prov = window.__THA_provider || window.ethereum;
+          if(!prov){ $('#walletStatus').textContent='Cüzdan bulunamadı.'; return; }
+          if (typeof prov.request === 'function'){ await prov.request({ method:'eth_requestAccounts' }); }
+          else if (typeof window.ethereum?.request === 'function'){ await window.ethereum.request({ method:'eth_requestAccounts' }); }
+          let accs = [];
+          if (typeof prov.request === 'function'){ accs = await prov.request({ method:'eth_accounts' }).catch(()=>[]); }
+          if ((!accs || accs.length===0) && typeof window.ethereum?.request === 'function'){ accs = await window.ethereum.request({ method:'eth_accounts' }).catch(()=>[]); }
+          const acc = (Array.isArray(accs)&&accs[0]) || accs || '—';
+          $('#accountBox').textContent = 'Hesap: ' + acc;
+          $('#walletStatus').textContent = 'Cüzdan bağlı.';
+        }catch(e){ console.error('connectSafe',e); $('#walletStatus').textContent='Bağlantı reddedildi veya hata.'; }
+      };
+
+      window.switchToBaseSepoliaSafe = async function(){
+        try{
+          if(!window.__THA_provider) detect();
+          const mt = (typeof window.__THA_provider?.request === 'function') ? window.__THA_provider : window.ethereum;
+          if(!mt){ $('#walletStatus').textContent='Cüzdan bulunamadı.'; return; }
+          await mt.request({ method:'wallet_switchEthereumChain', params:[{ chainId: CHAIN_ID_HEX }] })
+            .then(()=> $('#walletStatus').textContent='Ağ: Base Sepolia')
+            .catch(async(err)=>{
+              if (err && (err.code===4902 || /Unrecognized chain/.test(String(err.message)))){
+                try{ await mt.request({ method:'wallet_addEthereumChain', params:[CHAIN_PARAMS]}); $('#walletStatus').textContent='Ağ eklendi ve seçildi: Base Sepolia'; }
+                catch(e2){ console.error('addChain',e2); $('#walletStatus').textContent='Ağ eklenemedi.'; }
+              }else{ console.error('switchChain',err); $('#walletStatus').textContent='Ağ değiştirilemedi.'; }
+            });
+        }catch(e){ console.error('switchSafe',e); $('#walletStatus').textContent='Ağ değiştirilemedi (hata).'; }
+      };
+
+      function bind(){
+        const c = document.getElementById('btnConnect'); if(c){ c.onclick=null; c.addEventListener('click',window.connectSafe); }
+        const s = document.getElementById('btnSwitch');  if(s){ s.onclick=null; s.addEventListener('click',window.switchToBaseSepoliaSafe); }
+      }
+      window.addEventListener('load', ()=>{ detect(); bind(); });
+      let tries=0; const it=setInterval(()=>{ tries++; if(!window.__THA_provider) detect(); if(window.__THA_provider || tries>8){ clearInterval(it); bind(); } },700);
+    })();
+    </script>
+    <!-- <<< END provider detection >>> -->
+
+    <!-- Cüzdan -->
+    <section class="card">
+      <h2>Cüzdan Bağla</h2>
+      <p id="walletStatus" class="muted">MetaMask ile Base Sepolia'ya bağlan.</p>
+      <div class="actions">
+        <button class="btn primary" id="btnConnect">MetaMask’e Bağlan</button>
+        <button class="btn" id="btnSwitch">Base Sepolia’ya Geç</button>
+      </div>
+      <small class="muted" id="accountBox"></small>
+    </section>
+
+    <!-- Arena Kontrol -->
+    <section class="card">
+      <h2>🎮 Arena — Level 2 (Simülasyon)</h2>
+      <div class="timerBox">
+        <div class="card timer">
+          <b>⏱ Trade Süresi:</b>
+          <div id="tradeTimer" style="font-size:28px;font-weight:700">05:00</div>
+          <div class="muted-sm">Swap → %1 fee → hacim artar</div>
+        </div>
+        <div class="card timer">
+          <b>🔥 Burn Süresi:</b>
+          <div id="burnTimer" style="font-size:28px;font-weight:700">05:00</div>
+          <div class="muted-sm">Her 30sn → en düşük hacim yanar</div>
+        </div>
+      </div>
+
+      <div class="actions">
+        <input id="myTokenName" class="btn" style="padding:10px;min-width:240px" placeholder="Token adın (3-24)" />
+        <button class="btn primary" id="btnArenaJoin">Arenaya Katıl (1000 supply)</button>
+        <button class="btn" id="btnArenaReset">Sıfırla</button>
+        <button class="btn" id="btnArenaStart">Başlat</button>
+      </div>
+
+      <div class="hr"></div>
+      <div id="arena" class="arena"></div>
+    </section>
+
+    <!-- Swap Modal -->
+    <div id="swapModal" class="modal">
+      <div class="box">
+        <h3>Swap</h3>
+        <p class="muted-sm">Kaynak → hedef (fee: %1). Yalnızca yaşayan tokenlar.</p>
+        <div class="field">
+          <label>Kaynak (from):</label>
+          <select id="swapFrom" class="btn"></select>
+        </div>
+        <div class="field">
+          <label>Hedef (to):</label>
+          <select id="swapTo" class="btn"></select>
+        </div>
+        <div class="field">
+          <label>Miktar:</label>
+          <input id="swapAmt" class="btn" type="number" min="1" placeholder="örn. 50" />
+          <small id="swapBalInfo" class="muted-sm"></small>
+        </div>
+        <div class="actions" style="justify-content:space-between">
+          <button class="btn" id="btnSwapCancel">İptal</button>
+          <button class="btn primary" id="btnSwapDo">Onayla</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Token Oluştur (Yerel Önizleme) -->
+    <section class="card">
+      <h2>🪙 Token Oluştur (Yerel Önizleme)</h2>
+      <div class="grid two">
+        <div class="field">
+          <label>Token Adı <span class="muted-sm">(ör. PEPEKING)</span></label>
+          <input id="tokenName" class="btn" style="padding:10px" placeholder="TOKEN ADI (A-Z, 3-24 karakter)" />
+        </div>
+        <div class="field">
+          <label>Önizleme (AI-meme ikon)</label>
+          <div class="token-card">
+            <img id="tokenIcon" alt="ikon" src="about:blank" />
+            <div>
+              <div id="tokenSlug" class="muted-sm">—</div>
+              <button id="btnPreview" class="btn">Önizlemeyi Güncelle</button>
+            </div>
+          </div>
+          <small class="muted-sm">URL: <span id="iconUrlText"></span></small>
+        </div>
+      </div>
+      <div class="actions" style="margin-top:10px">
+        <button id="btnMint" class="btn">Yerelde Kaydet</button>
+      </div>
+      <div class="hr"></div>
+      <h3 style="margin:0 0 6px 0">Benim Tokenlarım (Yerel)</h3>
+      <div id="myTokens" class="grid three"></div>
+    </section>
+
+    <!-- Kontrat (On-Chain TEST) -->
+    <section class="card">
+      <h2>🧱 Kontrat (Base Sepolia TEST)</h2>
+      <p>İstersen on-chain test et: adresi gir → bağlan → <code class="inline">join</code>, <code class="inline">swap</code>, <code class="inline">burnNext</code>.</p>
+
+      <div class="grid two">
+        <div class="field">
+          <label>Kontrat Adresi</label>
+          <input id="caInput" class="btn" style="padding:10px" placeholder="0x..." />
+          <div class="actions" style="margin-top:8px">
+            <button class="btn primary" id="btnSaveCA">Adresi Kaydet</button>
+            <button class="btn" id="btnConnectCA">Kontrata Bağlan</button>
+          </div>
+          <small class="muted-sm" id="caSaved"></small>
+        </div>
+
+        <div class="field">
+          <label>On-Chain İşlemler</label>
+          <div class="row">
+            <input id="ocTokenName" class="btn" style="padding:10px;min-width:200px" placeholder="Token adın (3-24)" />
+            <button class="btn" id="btnOCJoin">join()</button>
+          </div>
+          <div class="row">
+            <input id="fromId" class="btn" style="padding:10px;width:100px" placeholder="fromId" />
+            <input id="toId" class="btn" style="padding:10px;width:100px" placeholder="toId" />
+            <input id="amt" class="btn" style="padding:10px;width:120px" placeholder="amount" />
+            <button class="btn" id="btnSwap">swap()</button>
+          </div>
+          <div class="row">
+            <button class="btn" id="btnBurn">burnNext()</button>
+            <button class="btn" id="btnAlive">Kalanları Getir</button>
+          </div>
+          <small class="muted-sm" id="ocMsg"></small>
+        </div>
+      </div>
+
+      <div class="hr"></div>
+      <h3 style="margin:0 0 6px 0">Kalan Tokenlar (On-Chain Görünüm)</h3>
+      <table id="aliveTable">
+        <thead><tr><th>ID</th><th>Ad</th><th>Hacim</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <!-- Paylaş -->
+    <section class="card">
+      <h2>Farcaster’da Paylaş</h2>
+      <div class="actions">
+        <a class="btn primary" id="share">Farcaster’da Paylaş</a>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="wrap foot">
+    <span>© Token Hunger Arena — Level 2 (Base Sepolia)</span>
+  </footer>
+
+  <script>
+    /*************** Yardımcılar ***************/
+    const $ = (s)=>document.querySelector(s);
+    const byId=(id)=>document.getElementById(id);
+    const format=(sec)=>{const m=String(Math.floor(sec/60)).padStart(2,'0');const s2=String(Math.floor(sec%60)).padStart(2,'0');return m+':'+s2;}
+    const slugify=(s)=> (s||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,24);
+    const iconUrl=(seed)=> `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(seed)}`;
+
+    /********* Paylaş *********/
+    $('#share').addEventListener('click', () => {
+      const text = encodeURIComponent(
+        "Token Hunger Arena — LEVEL 2 (Base Sepolia). 10 token arena, %1 fee, 30sn burn, final 2 kazanır. Gel 🔥"
+      );
+      window.open(`https://warpcast.com/~/compose?text=${text}`, '_blank');
+    });
+
+    /********* Yerel Token Önizleme *********/
+    const nameInput=$('#tokenName'); const iconImg=$('#tokenIcon'); const slugSpan=$('#tokenSlug'); const iconUrlText=$('#iconUrlText');
+    $('#btnPreview').addEventListener('click',()=>{
+      const seed = slugify(nameInput.value||'');
+      if(!seed||seed.length<3){ slugSpan.textContent='—'; iconImg.src='about:blank'; iconUrlText.textContent=''; return; }
+      const url=iconUrl(seed); iconImg.src=url; slugSpan.textContent=seed; iconUrlText.textContent=url;
+    });
+    const TOK_KEY='tha_my_tokens';
+    const loadMyTokens = ()=>{ try{return JSON.parse(localStorage.getItem(TOK_KEY)||'[]');}catch{return [];} };
+    const saveMyTokens = (list)=> localStorage.setItem(TOK_KEY,JSON.stringify(list));
+    function renderMyTokens(){
+      const box=$('#myTokens'); const list=loadMyTokens();
+      if(!box) return;
+      if(!list.length){ box.innerHTML='<div class="muted-sm">Henüz token yok.</div>'; return; }
+      box.innerHTML='';
+      list.forEach(t=>{
+        const div=document.createElement('div'); div.className='card token-card';
+        div.innerHTML=`<img src="${t.icon}" alt=""><div><b>${t.name}</b><div class="muted-sm">${t.icon}</div></div>`;
+        box.appendChild(div);
+      });
+    }
+    renderMyTokens();
+    $('#btnMint').addEventListener('click',()=>{
+      const seed=slugify(nameInput.value||'');
+      if(!seed||seed.length<3){ alert('3–24 karakter, harf/sayı'); return; }
+      const list=loadMyTokens(); if(list.find(x=>x.name===seed)){ alert('Bu isim var.'); return; }
+      list.push({name:seed,icon:iconUrl(seed)}); saveMyTokens(list); renderMyTokens(); alert('Yerel kaydedildi.');
+    });
+
+    /********* Arena Simülasyon *********/
+    const ARENA_KEY='tha_arena_state_v2';
+    const SUPPLY=1000, FEE_BP=100; // %1
+    let arena=null; // { tokens:[{id,name,alive,vol,icon,holdings:{you:number}}], started, tradeLeft, burnLeft }
+    const arenaEl = byId('arena');
+
+    function newBotName(){
+      const pool=['PEPE','DOGE','WOJAK','FROG','CAT','LAMBO','MOON','NGMI','WAGMI','COOK','SHIB','FLOKI','PONK','GIGA','MEME','TURBO','RUG','APU','KEK','PEPE2'];
+      const p=pool[Math.floor(Math.random()*pool.length)];
+      const n=Math.floor(100+Math.random()*900);
+      return p+n;
+    }
+
+    function createArena(yourName){
+      const tokens=[];
+      const ySeed = slugify(yourName||'PLAYER') || 'PLAYER';
+      tokens.push({ id:1, name:ySeed, alive:true, vol:0, icon:iconUrl(ySeed), holdings:{you:SUPPLY} });
+      for(let i=2;i<=10;i++){
+        const bn = newBotName();
+        tokens.push({ id:i, name:bn, alive:true, vol:0, icon:iconUrl(bn), holdings:{you:0} });
+      }
+      arena = { tokens, started:false, tradeLeft:5*60, burnLeft:5*60 };
+      saveArena();
+    }
+
+    function saveArena(){ localStorage.setItem(ARENA_KEY, JSON.stringify(arena)); }
+    function loadArena(){ try{ arena = JSON.parse(localStorage.getItem(ARENA_KEY)||'null'); }catch{ arena=null; } }
+
+    function renderArena(){
+      if(!arena) return;
+      arenaEl.innerHTML='';
+      const aliveCount = arena.tokens.filter(t=>t.alive).length;
+      arena.tokens.forEach(t=>{
+        const youBal = t.holdings.you||0;
+        const div=document.createElement('div');
+        div.className='tile'+(t.alive?'':' dead');
+        div.innerHTML = `
+          <div class="token-card">
+            <img src="${t.icon}" alt="">
+            <div>
+              <div class="name">${t.name} ${t.alive?'<span class="tag">ALIVE</span>':'<span class="tag">BURNED</span>'}</div>
+              <div class="bal">Benim bakiye: <b>${youBal}</b></div>
+              <div class="vol">Hacim: <b>${t.vol}</b></div>
+            </div>
+          </div>
+          <div class="act">
+            <button class="btn" ${!t.alive?'disabled':''} data-id="${t.id}">Bu tokeni al/sat</button>
+          </div>
+        `;
+        const btn = div.querySelector('button');
+        if(btn){ btn.addEventListener('click',()=> openSwap(t.id)); }
+        arenaEl.appendChild(div);
+      });
+      byId('tradeTimer').textContent = format(arena.tradeLeft);
+      byId('burnTimer').textContent  = format(arena.burnLeft);
+      if (aliveCount<=2) endGame();
+    }
+
+    // Swap Modal
+    const modal = byId('swapModal');
+    const selFrom = byId('swapFrom');
+    const selTo   = byId('swapTo');
+    const info    = byId('swapBalInfo');
+    const amtInp  = byId('swapAmt');
+
+    function openSwap(defaultFromId){
+      if(!arena) return;
+      selFrom.innerHTML=''; selTo.innerHTML=''; amtInp.value='';
+      const alive = arena.tokens.filter(t=>t.alive);
+      alive.forEach(t=>{ const o=document.createElement('option'); o.value=t.id; o.textContent=`#${t.id} ${t.name}`; selFrom.appendChild(o); });
+      alive.forEach(t=>{ const o=document.createElement('option'); o.value=t.id; o.textContent=`#${t.id} ${t.name}`; selTo.appendChild(o); });
+      if(defaultFromId) selFrom.value=String(defaultFromId);
+      const refreshInfo=()=>{ const fromTok = arena.tokens.find(t=>t.id===parseInt(selFrom.value)); info.textContent='Bakiye: '+(fromTok?.holdings.you||0); };
+      selFrom.onchange = refreshInfo; refreshInfo();
+      modal.style.display='flex';
+    }
+    byId('btnSwapCancel').onclick=()=>{ modal.style.display='none'; };
+    byId('btnSwapDo').onclick=()=>{
+      const fromId = parseInt(selFrom.value);
+      const toId   = parseInt(selTo.value);
+      const amount = parseInt(amtInp.value||'0');
+      if(!(fromId>0&&toId>0&&amount>0)) return alert('Alanları doldur.');
+      if(fromId===toId) return alert('Aynı tokene swap olmaz.');
+      doSwap(fromId,toId,amount);
+      modal.style.display='none';
+    };
+
+    function doSwap(fromId,toId,amount){
+      const A = arena.tokens.find(t=>t.id===fromId && t.alive);
+      const B = arena.tokens.find(t=>t.id===toId   && t.alive);
+      if(!A||!B) return alert('Token bulunamadı/yanmış.');
+      const bal = A.holdings.you||0;
+      if(bal<amount) return alert('Yetersiz bakiye.');
+      const fee = Math.floor(amount*FEE_BP/10000); // %1
+      const out = amount - fee;
+      A.holdings.you = bal - amount;
+      B.holdings.you = (B.holdings.you||0) + out;
+      A.vol += amount; B.vol += out;
+      saveArena(); renderArena();
+    }
+
+    // Sayaçlar
+    let tradeTimerId=null, burnTickId=null, burnTimerId=null;
+    function startArena(){
+      if(!arena){ alert('Önce Arenaya Katıl.'); return; }
+      if(arena.started) return;
+      arena.started=true;
+      tradeTimerId=setInterval(()=>{
+        arena.tradeLeft--;
+        if(arena.tradeLeft<=0){ clearInterval(tradeTimerId); startBurnStage(); }
+        saveArena(); byId('tradeTimer').textContent=format(arena.tradeLeft);
+      },1000);
+    }
+    function startBurnStage(){
+      burnTimerId=setInterval(()=>{
+        arena.burnLeft--;
+        if(arena.burnLeft<=0){ clearInterval(burnTimerId); finalizeIfNeeded(); }
+        saveArena(); byId('burnTimer').textContent=format(arena.burnLeft);
+      },1000);
+      burnTickId=setInterval(()=> burnOne(), 30000);
+    }
+    function burnOne(){
+      const alive = arena.tokens.filter(t=>t.alive);
+      if(alive.length<=2){ clearInterval(burnTickId); finalizeIfNeeded(); return; }
+      let min = alive[0]; for (const t of alive){ if(t.vol<min.vol) min=t; }
+      min.alive=false;
+      saveArena(); renderArena();
+      const tiles = arenaEl.querySelectorAll('.tile');
+      tiles.forEach(x=> x.classList.remove('burnFlash'));
+      setTimeout(()=> tiles.forEach(x=> x.classList.add('burnFlash')),10);
+    }
+    function finalizeIfNeeded(){
+      const alive = arena.tokens.filter(t=>t.alive);
+      if(alive.length<=2){
+        clearInterval(burnTimerId); clearInterval(burnTickId);
+        alert('Oyun bitti! Final 2 token: '+alive.map(x=>x.name).join(' & '));
+      }
+    }
+    function endGame(){
+      byId('tradeTimer').textContent=format(0);
+      byId('burnTimer').textContent=format(0);
+    }
+
+    // UI bind
+    byId('btnArenaJoin').addEventListener('click',()=>{
+      const nm = slugify(byId('myTokenName').value||'PLAYER');
+      if(nm.length<3) return alert('En az 3 karakter.');
+      createArena(nm); renderArena();
+      alert('Arenaya katıldın. Toplam 10 token oluştu (9 bot).');
+    });
+    byId('btnArenaReset').addEventListener('click',()=>{
+      localStorage.removeItem(ARENA_KEY); arena=null; arenaEl.innerHTML='';
+      byId('tradeTimer').textContent='05:00'; byId('burnTimer').textContent='05:00';
+      clearInterval(tradeTimerId); clearInterval(burnTickId); clearInterval(burnTimerId);
+    });
+    byId('btnArenaStart').addEventListener('click',()=>{ if(!arena){ alert('Önce Arenaya Katıl.'); return; } startArena(); });
+
+    // mevcut state varsa yükle
+    loadArena(); if(arena){ renderArena(); }
+
+    /********* On-Chain (opsiyonel) *********/
+    let CONTRACT_ADDRESS = localStorage.getItem('tha_contract') || "CONTRACT_ADDRESS_HERE";
+    const ABI = [
+      "function join(string name) external",
+      "function swap(uint256 fromId,uint256 toId,uint256 amount) external",
+      "function burnNext() external",
+      "function getAliveTokens() external view returns (uint256[] ids,string[] names,uint256[] vols)"
+    ];
+    let provider, signer, contract;
+
+    function saveCA(addr){ localStorage.setItem('tha_contract',addr); $('#caSaved').textContent='Kaydedildi: '+addr; CONTRACT_ADDRESS=addr; }
+    function loadCA(){ const a=localStorage.getItem('tha_contract')||''; if(a){ $('#caInput').value=a; $('#caSaved').textContent='Kayıtlı: '+a; CONTRACT_ADDRESS=a; } }
+    loadCA();
+
+    $('#btnSaveCA').addEventListener('click', ()=>{ const a=$('#caInput').value.trim(); if(!a||!a.startsWith('0x')||a.length<42){ alert('Adres gir.'); return; } saveCA(a); });
+    $('#btnConnectCA').addEventListener('click', async ()=>{
+      try{
+        const prov = window.getSafeEthersProvider ? window.getSafeEthersProvider() : null;
+        if(!prov) return alert('Provider yok / MetaMask gerekli.');
+        await prov.send('eth_requestAccounts',[]);
+        provider=prov; signer=provider.getSigner();
+        const addr=($('#caInput').value.trim()||CONTRACT_ADDRESS);
+        if(!addr||addr==='CONTRACT_ADDRESS_HERE') return alert('Kontrat adresi gir.');
+        contract=new ethers.Contract(addr,ABI,signer);
+        $('#ocMsg').textContent='Kontrata bağlandı: '+addr;
+      }catch(e){ console.error(e); alert('Bağlantı hatası'); }
+    });
+    $('#btnOCJoin').addEventListener('click', async ()=>{
+      if(!contract) return alert('Önce Kontrata Bağlan.');
+      const name = ($('#ocTokenName').value||'').trim(); if(name.length<3) return alert('İsim kısa.');
+      try{ const tx=await contract.join(name); $('#ocMsg').textContent='join tx: '+tx.hash; await tx.wait(); $('#ocMsg').textContent='join onay: '+tx.hash; }catch(e){ console.error(e); alert('join hatası'); }
+    });
+    $('#btnSwap').addEventListener('click', async ()=>{
+      if(!contract) return alert('Önce Kontrata Bağlan.');
+      const fromId=parseInt($('#fromId').value||'0'); const toId=parseInt($('#toId').value||'0'); const amt=parseInt($('#amt').value||'0');
+      if(!(fromId>0&&toId>0&&amt>0)) return alert('Alanları doldur.');
+      try{ const tx=await contract.swap(fromId,toId,amt); $('#ocMsg').textContent='swap tx: '+tx.hash; await tx.wait(); $('#ocMsg').textContent='swap onay: '+tx.hash; }catch(e){ console.error(e); alert('swap hatası'); }
+    });
+    $('#btnBurn').addEventListener('click', async ()=>{
+      if(!contract) return alert('Önce Kontrata Bağlan.');
+      try{ const tx=await contract.burnNext(); $('#ocMsg').textContent='burnNext tx: '+tx.hash; await tx.wait(); $('#ocMsg').textContent='burnNext onay: '+tx.hash; }catch(e){ console.error(e); alert('burnNext hatası'); }
+    });
+    $('#btnAlive').addEventListener('click', async ()=>{
+      if(!contract) return alert('Önce Kontrata Bağlan.');
+      try{
+        const res=await contract.getAliveTokens(); const ids=res[0], names=res[1], vols=res[2];
+        const tb=document.querySelector('#aliveTable tbody'); tb.innerHTML='';
+        for(let i=0;i<ids.length;i++){ const tr=document.createElement('tr'); tr.innerHTML=`<td>${ids[i]}</td><td>${names[i]}</td><td>${vols[i]}</td>`; tb.appendChild(tr); }
+        $('#ocMsg').textContent=`Kalan token: ${ids.length}`;
+      }catch(e){ console.error(e); alert('getAliveTokens hatası'); }
+    });
+  </script>
+</body>
+</html>
