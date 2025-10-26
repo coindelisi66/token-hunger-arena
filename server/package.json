@@ -1,0 +1,15 @@
+{
+  "name": "tha-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "arena.js",
+  "scripts": {
+    "start": "node arena.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  }
+}
